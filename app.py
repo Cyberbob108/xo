@@ -1,6 +1,6 @@
+import json
 import random
 import string
-import json
 
 import streamlit as st
 from supabase import Client, create_client
@@ -54,7 +54,21 @@ def get_game(code):
     return result.data[0] if result.data else None
 
 
+def show_database_error(error):
+    error_code = getattr(error, "code", "")
+    error_message = str(getattr(error, "message", error)).lower()
+    if error_code == "42P01" or "xoxo_games" in error_message and "does not exist" in error_message:
+        st.error("The xoxo_games table is missing. Run the Supabase SQL setup from README.md.")
+    elif error_code == "42501" or "row-level security" in error_message or "permission denied" in error_message:
+        st.error("Supabase denied this request. Check that the anon SELECT and INSERT policies are enabled.")
+    elif "column" in error_message and "does not exist" in error_message:
+        st.error("The xoxo_games table has the wrong schema. Re-run the complete SQL setup from README.md.")
+    else:
+        st.error("Supabase could not save the game. Check your URL, anon key, table schema, and RLS policies.")
+
+
 def create_game():
+    last_error = None
     for _ in range(5):
         code = generate_game_code()
         data = {"game_code": code, "board": [""] * 9, "current_player": "X", "status": "waiting", "winner": None, "winning_cells": [], "x_score": 0, "o_score": 0, "draw_score": 0, "player_x": "X", "player_o": None, "round_number": 1}
@@ -64,9 +78,10 @@ def create_game():
                 st.session_state.game_code = code
                 st.session_state.player = "X"
                 st.rerun()
-        except Exception:
+        except Exception as error:
+            last_error = error
             continue
-    st.error("We could not create a game right now. Please try again.")
+    show_database_error(last_error)
 
 
 def join_game(raw_code):

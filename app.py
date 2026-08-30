@@ -1,628 +1,227 @@
 import random
 import string
-import uuid
+import json
+
 import streamlit as st
-from supabase import create_client, Client
+from supabase import Client, create_client
 
 
-# ============================================================
-# CONFIG
-# ============================================================
+st.set_page_config(page_title="XOXO Online", page_icon="🎮", layout="centered", initial_sidebar_state="collapsed")
 
-st.set_page_config(
-    page_title="XOXO Online",
-    page_icon="❌",
-    layout="centered",
-    initial_sidebar_state="collapsed",
-)
+WINNING_COMBINATIONS = [(0, 1, 2), (3, 4, 5), (6, 7, 8), (0, 3, 6), (1, 4, 7), (2, 5, 8), (0, 4, 8), (2, 4, 6)]
+
+st.markdown("""
+<style>
+.block-container { max-width: 560px; padding: 2rem 1rem 1.5rem; }
+.title { color: #102a43; font-size: 2.4rem; font-weight: 800; text-align: center; margin-bottom: 0; }
+.subtitle { color: #486581; text-align: center; margin-bottom: 1.4rem; }
+.game-code { background: #e8f1f5; border: 1px solid #bcccdc; border-radius: 10px; color: #102a43; font-size: 1.8rem; font-weight: 800; letter-spacing: .3rem; padding: .6rem; text-align: center; }
+.status { color: #102a43; font-size: 1.25rem; font-weight: 700; padding: .65rem; text-align: center; }
+.waiting { background: #f0f4f8; border-radius: 10px; margin: 1rem 0; padding: 1.2rem; text-align: center; }
+.score-box { border-top: 1px solid #d9e2ec; color: #334e68; margin-top: 1.1rem; padding: .9rem; text-align: center; }
+div[data-testid="stButton"] button { min-height: 58px; border-radius: 9px; font-size: 1.8rem; font-weight: 800; }
+div[data-testid="stTextInput"] input { text-transform: uppercase; }
+@media (max-width: 480px) { .block-container { padding-top: 1rem; } .title { font-size: 2rem; } div[data-testid="stButton"] button { min-height: 64px; } }
+</style>
+""", unsafe_allow_html=True)
 
 
-# ============================================================
-# SUPABASE
-# ============================================================
+def initialize_session():
+    if "game_code" not in st.session_state:
+        st.session_state.game_code = None
+    if "player" not in st.session_state:
+        st.session_state.player = None
+
 
 @st.cache_resource
 def get_supabase() -> Client:
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_SECRET_KEY"]
-    return create_client(url, key)
-
-
-supabase = get_supabase()
-
-
-# ============================================================
-# SESSION STATE
-# ============================================================
-
-if "player_token" not in st.session_state:
-    st.session_state.player_token = str(uuid.uuid4())
-
-if "game_id" not in st.session_state:
-    st.session_state.game_id = None
-
-if "player" not in st.session_state:
-    st.session_state.player = None
-
-if "game_code" not in st.session_state:
-    st.session_state.game_code = None
-
-
-# ============================================================
-# CSS
-# ============================================================
-
-st.markdown(
-    """
-    <style>
-        .main {
-            max-width: 520px;
-            margin: auto;
-        }
-
-        .block-container {
-            padding-top: 2rem;
-            padding-bottom: 2rem;
-            max-width: 520px;
-        }
-
-        .title {
-            text-align: center;
-            font-size: 2.4rem;
-            font-weight: 800;
-            margin-bottom: 0.2rem;
-        }
-
-        .subtitle {
-            text-align: center;
-            color: #777;
-            margin-bottom: 1.5rem;
-        }
-
-        .game-code {
-            background: #f1f3f6;
-            border-radius: 12px;
-            padding: 12px;
-            text-align: center;
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: 5px;
-            margin: 10px 0 20px 0;
-        }
-
-        .status {
-            text-align: center;
-            font-size: 1.35rem;
-            font-weight: 700;
-            padding: 10px;
-            margin-bottom: 10px;
-        }
-
-        .score-box {
-            background: #f7f7f7;
-            border-radius: 12px;
-            padding: 12px;
-            text-align: center;
-            margin-top: 15px;
-        }
-
-        .waiting {
-            text-align: center;
-            padding: 25px 10px;
-            border-radius: 15px;
-            background: #f7f7f7;
-            margin: 15px 0;
-        }
-
-        button {
-            min-height: 48px !important;
-        }
-
-        div[data-testid="stButton"] button {
-            border-radius: 12px;
-            font-weight: 700;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# GAME LOGIC
-# ============================================================
-
-WINNING_COMBINATIONS = [
-    [0, 1, 2],
-    [3, 4, 5],
-    [6, 7, 8],
-    [0, 3, 6],
-    [1, 4, 7],
-    [2, 5, 8],
-    [0, 4, 8],
-    [2, 4, 6],
-]
+    return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 
 def check_winner(board):
-    for combo in WINNING_COMBINATIONS:
-        a, b, c = combo
-
-        if (
-            board[a]
-            and board[a] == board[b]
-            and board[a] == board[c]
-        ):
-            return board[a], combo
-
-    if all(board):
-        return "DRAW", []
-
+    for first, second, third in WINNING_COMBINATIONS:
+        if board[first] and board[first] == board[second] == board[third]:
+            return board[first], [first, second, third]
     return None, []
 
 
 def generate_game_code():
-    chars = string.ascii_uppercase + string.digits
-
-    while True:
-        code = "".join(random.choices(chars, k=6))
-
-        result = (
-            supabase
-            .table("xoxo_games")
-            .select("id")
-            .eq("game_code", code)
-            .execute()
-        )
-
-        if not result.data:
-            return code
+    return "".join(random.SystemRandom().choices(string.ascii_uppercase + string.digits, k=6))
 
 
-def get_game(game_id):
-    result = (
-        supabase
-        .table("xoxo_games")
-        .select("*")
-        .eq("id", game_id)
-        .limit(1)
-        .execute()
-    )
+def get_game(code):
+    result = get_supabase().table("xoxo_games").select("*").eq("game_code", code).limit(1).execute()
+    return result.data[0] if result.data else None
 
-    if result.data:
-        return result.data[0]
-
-    return None
-
-
-# ============================================================
-# DATABASE OPERATIONS
-# ============================================================
 
 def create_game():
-    code = generate_game_code()
+    for _ in range(5):
+        code = generate_game_code()
+        data = {"game_code": code, "board": [""] * 9, "current_player": "X", "status": "waiting", "winner": None, "winning_cells": [], "x_score": 0, "o_score": 0, "draw_score": 0, "player_x": "X", "player_o": None, "round_number": 1}
+        try:
+            result = get_supabase().table("xoxo_games").insert(data).select("*").execute()
+            if result.data:
+                st.session_state.game_code = code
+                st.session_state.player = "X"
+                st.rerun()
+        except Exception:
+            continue
+    st.error("We could not create a game right now. Please try again.")
 
-    data = {
-        "game_code": code,
-        "player_x_token": st.session_state.player_token,
-        "player_o_token": None,
-        "board": [""] * 9,
-        "current_player": "X",
-        "status": "waiting",
-        "winner": None,
-        "winning_cells": [],
-        "score_x": 0,
-        "score_o": 0,
-        "score_draw": 0,
-        "round_number": 1,
-        "version": 1,
-    }
 
-    result = (
-        supabase
-        .table("xoxo_games")
-        .insert(data)
-        .execute()
-    )
-
-    if result.data:
-        game = result.data[0]
-
-        st.session_state.game_id = game["id"]
-        st.session_state.game_code = game["game_code"]
-        st.session_state.player = "X"
-
+def join_game(raw_code):
+    code = raw_code.strip().upper()
+    valid_characters = string.ascii_uppercase + string.digits
+    if len(code) != 6 or any(character not in valid_characters for character in code):
+        st.error("Game code must be 6 letters or numbers.")
+        return
+    try:
+        game = get_game(code)
+        if not game:
+            st.error("Game not found.")
+            return
+        if game.get("player_o"):
+            st.error("This game is already full.")
+            return
+        result = (get_supabase().table("xoxo_games").update({"player_o": "O", "status": "playing"})
+                  .eq("game_code", code).is_("player_o", "null").eq("status", "waiting").select("*").execute())
+        if not result.data:
+            st.error("This game was just joined by another player.")
+            return
+        st.session_state.game_code = code
+        st.session_state.player = "O"
         st.rerun()
+    except Exception:
+        st.error("Could not join the game. Please check the code and try again.")
 
 
-def join_game(code):
-    code = code.strip().upper()
-
-    if len(code) != 6:
-        st.error("Game code must be 6 characters.")
-        return
-
-    result = (
-        supabase
-        .table("xoxo_games")
-        .select("*")
-        .eq("game_code", code)
-        .limit(1)
-        .execute()
-    )
-
-    if not result.data:
-        st.error("Game not found.")
-        return
-
-    game = result.data[0]
-
-    # Creator attempting to join their own game
-    if game["player_x_token"] == st.session_state.player_token:
-        st.session_state.game_id = game["id"]
-        st.session_state.game_code = game["game_code"]
-        st.session_state.player = "X"
-        st.rerun()
-
-    # Game already has O
-    if game["player_o_token"]:
-        if game["player_o_token"] == st.session_state.player_token:
-            st.session_state.game_id = game["id"]
-            st.session_state.game_code = game["game_code"]
-            st.session_state.player = "O"
-            st.rerun()
-
-        st.error("This game already has two players.")
-        return
-
-    # Atomically claim O
-    update = (
-        supabase
-        .table("xoxo_games")
-        .update(
-            {
-                "player_o_token": st.session_state.player_token,
-                "status": "active",
-                "version": game["version"] + 1,
-            }
-        )
-        .eq("id", game["id"])
-        .is_("player_o_token", "null")
-        .execute()
-    )
-
-    if not update.data:
-        st.error("Someone else just joined this game. Try again.")
-        return
-
-    st.session_state.game_id = game["id"]
-    st.session_state.game_code = game["game_code"]
-    st.session_state.player = "O"
-
-    st.rerun()
-
-
-def make_move(game, index):
+def make_move(index):
     player = st.session_state.player
+    code = st.session_state.game_code
+    try:
+        game = get_game(code)
+        if not game:
+            st.error("This game could not be found.")
+            return
+        board = list(game.get("board", []))
+        if game.get("status") != "playing":
+            st.warning("This round is already finished.")
+            return
+        if game.get("current_player") != player:
+            st.warning("It is the other player's turn.")
+            return
+        if index not in range(9) or board[index]:
+            st.warning("That cell is already occupied.")
+            return
 
-    if not player:
-        return
+        old_board = board[:]
+        board[index] = player
+        winner, winning_cells = check_winner(board)
+        update = {"board": board, "current_player": "O" if player == "X" else "X", "status": "playing", "winner": None, "winning_cells": []}
+        if winner:
+            update.update({"status": "finished", "winner": winner, "winning_cells": winning_cells})
+            score_name = "x_score" if winner == "X" else "o_score"
+            update[score_name] = game[score_name] + 1
+        elif all(board):
+            update.update({"status": "finished", "draw_score": game["draw_score"] + 1})
 
-    if game["status"] != "active":
-        return
-
-    if game["current_player"] != player:
-        return
-
-    board = list(game["board"])
-
-    if board[index]:
-        return
-
-    # Make the move locally
-    board[index] = player
-
-    winner, winning_cells = check_winner(board)
-
-    new_status = "active"
-    new_winner = None
-    new_current_player = "O" if player == "X" else "X"
-
-    score_x = game["score_x"]
-    score_o = game["score_o"]
-    score_draw = game["score_draw"]
-
-    if winner == "X":
-        new_status = "won"
-        new_winner = "X"
-        score_x += 1
-
-    elif winner == "O":
-        new_status = "won"
-        new_winner = "O"
-        score_o += 1
-
-    elif winner == "DRAW":
-        new_status = "draw"
-        new_winner = None
-        score_draw += 1
-
-    update_data = {
-        "board": board,
-        "current_player": new_current_player,
-        "status": new_status,
-        "winner": new_winner,
-        "winning_cells": winning_cells,
-        "score_x": score_x,
-        "score_o": score_o,
-        "score_draw": score_draw,
-        "version": game["version"] + 1,
-    }
-
-    # Optimistic locking prevents both players from
-    # successfully modifying the same board state.
-    result = (
-        supabase
-        .table("xoxo_games")
-        .update(update_data)
-        .eq("id", game["id"])
-        .eq("version", game["version"])
-        .execute()
-    )
-
-    if not result.data:
-        st.warning("Game changed. Refreshing...")
-        return
+        result = (get_supabase().table("xoxo_games").update(update).eq("game_code", code)
+              .eq("current_player", player).eq("board", json.dumps(old_board, separators=(",", ":"))).select("game_code").execute())
+        if not result.data:
+            st.warning("The game changed. The latest board is now shown.")
+        st.rerun()
+    except Exception:
+        st.error("Your move could not be saved. Please try again.")
 
 
-def rematch(game):
-    # Reset board but keep scores.
-    update_data = {
-        "board": [""] * 9,
-        "current_player": "X",
-        "status": "active",
-        "winner": None,
-        "winning_cells": [],
-        "round_number": game["round_number"] + 1,
-        "version": game["version"] + 1,
-    }
-
-    result = (
-        supabase
-        .table("xoxo_games")
-        .update(update_data)
-        .eq("id", game["id"])
-        .eq("version", game["version"])
-        .execute()
-    )
-
-    if not result.data:
-        st.warning("The game has already been restarted.")
+def play_again(game):
+    try:
+        result = (get_supabase().table("xoxo_games").update({"board": [""] * 9, "current_player": "X", "status": "playing", "winner": None, "winning_cells": [], "round_number": game["round_number"] + 1})
+                  .eq("game_code", game["game_code"]).eq("status", "finished").eq("round_number", game["round_number"]).select("game_code").execute())
+        if not result.data:
+            st.info("The next round is already ready.")
+        st.rerun()
+    except Exception:
+        st.error("Could not start the next round. Please try again.")
 
 
 def leave_game():
-    st.session_state.game_id = None
     st.session_state.game_code = None
     st.session_state.player = None
     st.rerun()
 
 
-# ============================================================
-# HOME SCREEN
-# ============================================================
-
 def home_screen():
-    st.markdown(
-        '<div class="title">❌⭕ XOXO</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        '<div class="subtitle">Online Tic-Tac-Toe</div>',
-        unsafe_allow_html=True,
-    )
-
-    create_tab, join_tab = st.tabs(
-        ["🎮 Create Game", "🔗 Join Game"]
-    )
-
-    with create_tab:
-        st.write("")
-        st.write("Create a game and share the code with your friend.")
-
-        if st.button(
-            "🎮 Create New Game",
-            use_container_width=True,
-            type="primary",
-        ):
+    st.markdown('<div class="title">🎮 XOXO</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subtitle">Online Tic-Tac-Toe</div>', unsafe_allow_html=True)
+    if st.button("Create Game", type="primary", use_container_width=True):
+        try:
             create_game()
-
-    with join_tab:
-        st.write("")
-        st.write("Enter the 6-character game code from your friend.")
-
-        code = st.text_input(
-            "Game Code",
-            max_chars=6,
-            placeholder="ABC123",
-            label_visibility="collapsed",
-        ).upper()
-
-        if st.button(
-            "🔗 Join Game",
-            use_container_width=True,
-            type="primary",
-        ):
-            join_game(code)
-
+        except Exception:
+            st.error("Supabase is not configured or is unavailable.")
     st.divider()
+    st.subheader("Join a Game")
+    code = st.text_input("Game Code", max_chars=6, placeholder="ABC123")
+    if st.button("Join Game", type="primary", use_container_width=True):
+        try:
+            join_game(code)
+        except Exception:
+            st.error("Supabase is not configured or is unavailable.")
 
-    st.caption(
-        "Open this app on two phones, create a game on one "
-        "phone, then join using the code on the other."
-    )
 
-
-# ============================================================
-# GAME SCREEN
-# ============================================================
-
-@st.fragment(run_every="1s")
+@st.fragment(run_every="2s")
 def game_screen():
-    game = get_game(st.session_state.game_id)
-
+    code = st.session_state.game_code
+    try:
+        game = get_game(code)
+    except Exception:
+        st.error("The shared game state is temporarily unavailable.")
+        return
     if not game:
-        st.error("Game no longer exists.")
-        if st.button("Back to Home"):
+        st.error("This game could not be found.")
+        if st.button("Back to Home", use_container_width=True):
             leave_game()
         return
 
     player = st.session_state.player
-
-    st.markdown(
-        '<div class="title">❌⭕ XOXO</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f"""
-        <div class="game-code">
-            {game["game_code"]}
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.caption(
-        f"You are Player {player}"
-    )
-
-    # --------------------------------------------------------
-    # WAITING FOR SECOND PLAYER
-    # --------------------------------------------------------
-
-    if not game["player_o_token"]:
-        st.markdown(
-            """
-            <div class="waiting">
-                <h3>⏳ Waiting for Player O</h3>
-                <p>Share the game code above with your friend.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if st.button(
-            "🚪 Leave Game",
-            use_container_width=True,
-        ):
-            leave_game()
-
-        return
-
-    # --------------------------------------------------------
-    # STATUS
-    # --------------------------------------------------------
-
-    if game["status"] == "active":
+    board = list(game.get("board", [""] * 9))
+    winning_cells = game.get("winning_cells") or []
+    st.markdown('<div class="title">🎮 XOXO</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="game-code">{game["game_code"]}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="status">You are Player {player}</div>', unsafe_allow_html=True)
+    if game["status"] == "waiting":
+        st.markdown('<div class="waiting"><strong>⏳ Waiting for Player O...</strong><br>Share the game code with your friend.</div>', unsafe_allow_html=True)
+    elif game["status"] == "playing":
         if game["current_player"] == player:
-            status_text = f"🟢 Your turn — {player}"
+            st.markdown('<div class="status">🟢 Your Turn</div>', unsafe_allow_html=True)
         else:
-            status_text = f"⏳ Player {game['current_player']}'s turn"
-
-    elif game["status"] == "won":
-        status_text = f"🏆 Player {game['winner']} Wins!"
-
+            st.markdown(f'<div class="status">⏳ Waiting for {game["current_player"]}...</div>', unsafe_allow_html=True)
+    elif game.get("winner"):
+        message = "🏆 You Win!" if game["winner"] == player else "😔 You Lose!"
+        st.markdown(f'<div class="status">{message}</div>', unsafe_allow_html=True)
     else:
-        status_text = "🤝 It's a Draw!"
-
-    st.markdown(
-        f'<div class="status">{status_text}</div>',
-        unsafe_allow_html=True,
-    )
-
-    # --------------------------------------------------------
-    # BOARD
-    # --------------------------------------------------------
-
-    board = game["board"]
-    winning_cells = game["winning_cells"]
+        st.markdown('<div class="status">🤝 It\'s a Draw!</div>', unsafe_allow_html=True)
 
     for row in range(3):
-        cols = st.columns(3)
-
-        for col in range(3):
-            index = row * 3 + col
-
+        columns = st.columns(3)
+        for column in range(3):
+            index = row * 3 + column
             value = board[index]
+            label = "🏆 " + value if index in winning_cells else ("❌" if value == "X" else "⭕" if value == "O" else " ")
+            disabled = game["status"] != "playing" or game["current_player"] != player or bool(value)
+            with columns[column]:
+                if st.button(label, key=f"cell_{game['round_number']}_{index}", disabled=disabled, use_container_width=True):
+                    make_move(index)
 
-            if index in winning_cells:
-                label = f"🏆 {value}"
-            elif value == "X":
-                label = "❌"
-            elif value == "O":
-                label = "⭕"
-            else:
-                label = " "
-
-            disabled = (
-                game["status"] != "active"
-                or game["current_player"] != player
-                or bool(value)
-            )
-
-            with cols[col]:
-                if st.button(
-                    label,
-                    key=f"cell_{game['id']}_{game['version']}_{index}",
-                    disabled=disabled,
-                    use_container_width=True,
-                ):
-                    make_move(game, index)
-
-    # --------------------------------------------------------
-    # SCORE
-    # --------------------------------------------------------
-
-    st.markdown(
-        f"""
-        <div class="score-box">
-            ❌ X: <b>{game["score_x"]}</b>
-            &nbsp;&nbsp;|&nbsp;&nbsp;
-            ⭕ O: <b>{game["score_o"]}</b>
-            &nbsp;&nbsp;|&nbsp;&nbsp;
-            🤝 Draws: <b>{game["score_draw"]}</b>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    st.write("")
-
-    # --------------------------------------------------------
-    # GAME OVER
-    # --------------------------------------------------------
-
-    if game["status"] in ("won", "draw"):
-        if st.button(
-            "🔄 Rematch",
-            use_container_width=True,
-            type="primary",
-        ):
-            rematch(game)
-
-    if st.button(
-        "🚪 Leave Game",
-        use_container_width=True,
-    ):
+    st.markdown(f'<div class="score-box">X Wins: <strong>{game["x_score"]}</strong> &nbsp;|&nbsp; O Wins: <strong>{game["o_score"]}</strong> &nbsp;|&nbsp; Draws: <strong>{game["draw_score"]}</strong></div>', unsafe_allow_html=True)
+    if game["status"] == "finished" and st.button("🔄 Play Again", type="primary", use_container_width=True):
+        play_again(game)
+    if st.button("🚪 Leave Game", use_container_width=True):
         leave_game()
 
 
-# ============================================================
-# APP ROUTER
-# ============================================================
-
-if st.session_state.game_id:
+initialize_session()
+if st.session_state.game_code and st.session_state.player:
     game_screen()
 else:
     home_screen()

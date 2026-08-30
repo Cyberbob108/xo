@@ -61,7 +61,7 @@ def show_database_error(error):
         st.error("The xoxo_games table is missing. Run the Supabase SQL setup from README.md.")
     elif error_code == "42501" or "row-level security" in error_message or "permission denied" in error_message:
         st.error("Supabase denied this request. Check that the anon SELECT and INSERT policies are enabled.")
-    elif "column" in error_message and "does not exist" in error_message:
+    elif error_code == "PGRST204" or "column" in error_message and ("does not exist" in error_message or "could not find" in error_message):
         st.error("The xoxo_games table has the wrong schema. Re-run the complete SQL setup from README.md.")
     else:
         st.error("Supabase could not save the game. Check your URL, anon key, table schema, and RLS policies.")
@@ -73,11 +73,10 @@ def create_game():
         code = generate_game_code()
         data = {"game_code": code, "board": [""] * 9, "current_player": "X", "status": "waiting", "winner": None, "winning_cells": [], "x_score": 0, "o_score": 0, "draw_score": 0, "player_x": "X", "player_o": None, "round_number": 1}
         try:
-            result = get_supabase().table("xoxo_games").insert(data).select("*").execute()
-            if result.data:
-                st.session_state.game_code = code
-                st.session_state.player = "X"
-                st.rerun()
+            get_supabase().table("xoxo_games").insert(data).execute()
+            st.session_state.game_code = code
+            st.session_state.player = "X"
+            st.rerun()
         except Exception as error:
             last_error = error
             continue

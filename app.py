@@ -760,7 +760,7 @@ def home_screen():
     )
 
     st.markdown(
-        '<div class="subtitle">Online Tic-Tac-Toe</div>',
+        '<div class="subtitle">Online Tic-Tac-Toe developed with 🫰 </div>',
         unsafe_allow_html=True,
     )
 
